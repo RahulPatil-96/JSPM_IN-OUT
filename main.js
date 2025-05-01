@@ -1,5 +1,4 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
-const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const DatabaseManager = require('./backend');
@@ -36,26 +35,25 @@ class ElectronApp {
 
     async initialize() {
         try {
-            console.log('Initializing database manager...');
             await this.dbManager.initialize();
+            console.log("setting up backupp scheduler....");
+            this.setupBackupScheduler()
+            console.log("backup scheduler set ok..");
             this.setupAppLifecycle();
             this.setupIpcHandlers();
         } catch (error) {
-            console.error('Application initialization error:', error.message);
+            console.error('Application initialization error:', error);
             app.quit();
         }
     }
 
     setupAppLifecycle() {
         app.whenReady().then(() => {
-            console.log('App is ready. Creating main window...');
             this.createMainWindow();
-            this.setupAutoUpdater(); // Setup auto-updater after creating the main window
         });
 
         app.on('window-all-closed', () => {
             if (process.platform !== 'darwin') {
-                console.log('All windows closed. Quitting app.');
                 app.quit();
             }
         });
@@ -75,65 +73,133 @@ class ElectronApp {
         });
     }
 
+    // Create the main window
     createMainWindow() {
-        try {
-            this.mainWindow = new BrowserWindow({
-                width: 1200,
-                height: 800,
-                webPreferences: {
-                    preload: path.join(__dirname, 'preload.js'),
-                    contextIsolation: true,
-                    nodeIntegration: false,
-                    cache: true
-                },
-            });
+        this.mainWindow = new BrowserWindow({
+            width: 1200,
+            height: 800,
+            webPreferences: {
+                preload: path.join(__dirname, 'preload.js'),
+                contextIsolation: true,
+                nodeIntegration: true,
+                cache:true,
+            },
+        });
 
-            const loginPath = path.join(__dirname, 'templates', 'login.html');
-            console.log(`Loading login file: ${loginPath}`);
+        this.mainWindow.loadFile(path.join(__dirname, 'templates', 'login.html')).catch((err) => {
+            console.error('Failed to load login.html:', err);
+        });
 
-            this.mainWindow.loadFile(loginPath).catch((err) => {
-                console.error(`Failed to load login.html: ${err}`);
-            });
-
-            this.mainWindow.setMenuBarVisibility(false);
-            this.mainWindow.on('closed', () => {
-                this.mainWindow = null;
-            });
-        } catch (error) {
-            console.error(`Error creating main window: ${error}`);
-        }
+        this.mainWindow.setMenuBarVisibility(false);
+        this.mainWindow.on('close', async (e) => {
+            if (this.checkpointInProgress) return;
+            this.checkpointInProgress = true;
+        
+            e.preventDefault(); // prevent closing for now
+        
+            console.log('[INFO] Window close detected. Running WAL checkpoint...');
+        
+            try {
+                await this.dbManager.checkpointAndClose();
+                console.log('[INFO] WAL checkpoint completed. Closing now...');
+            } catch (err) {
+                console.error("[ERROR] Checkpoint process failed:", err.message);
+            }
+        
+            this.mainWindow.destroy();
+            app.quit();
+        });
+        
     }
 
-    setupAutoUpdater() {
-        autoUpdater.autoDownload = true; // Automatically download updates
-        autoUpdater.autoInstallOnAppQuit = true;
-
-        autoUpdater.on('checking-for-update', () => {
-            this.mainWindow.webContents.send('update_status', 'Checking for update...');
-        });
-
-        autoUpdater.on('update-available', (info) => {
-            this.mainWindow.webContents.send('update_available', info);
-        });
-
-        autoUpdater.on('update-not-available', (info) => {
-            this.mainWindow.webContents.send('update_not_available', info);
-        });
-
-        autoUpdater.on('error', (err) => {
-            this.mainWindow.webContents.send('update_error', err.message);
-        });
-
-        autoUpdater.on('download-progress', (progressObj) => {
-            this.mainWindow.webContents.send('download_progress', progressObj);
-        });
-
-        autoUpdater.on('update-downloaded', (info) => {
-            this.mainWindow.webContents.send('update_downloaded', info);
-        });
-
-        // Check for updates
-        autoUpdater.checkForUpdatesAndNotify();
+    // Backup functionality
+    setupBackupScheduler() {
+        const BACKUP_INTERVAL = 1 * 24 * 60 * 60 * 1000;
+        const BACKUP_DIR = 'D:\\inward-outward-backup';
+        const LAST_BACKUP_FILE = path.join(app.getPath('userData'), 'last-backup-time.json');
+    
+        const ensureDirectoryExists = (dirPath) => {
+            if (!fs.existsSync(dirPath)) {
+                fs.mkdirSync(dirPath, { recursive: true });
+                console.log(`Directory created: ${dirPath}`);
+            }
+        };
+    
+        const getLastBackupTime = () => {
+            if (fs.existsSync(LAST_BACKUP_FILE)) {
+                const data = JSON.parse(fs.readFileSync(LAST_BACKUP_FILE, 'utf8'));
+                return new Date(data.lastBackupTime).getTime();
+            }
+            return 0; // No previous backup
+        };
+    
+        const saveBackupTime = () => {
+            ensureDirectoryExists(BACKUP_DIR);
+            const now = new Date().toISOString();
+            fs.writeFileSync(LAST_BACKUP_FILE, JSON.stringify({ lastBackupTime: now }), 'utf8');
+            console.log('Backup time saved.');
+        };
+    
+        const createBackup = () => {
+            console.log('Starting backup process...');
+            try {
+                ensureDirectoryExists(BACKUP_DIR);
+    
+                const timestamp = new Date().toISOString().replace(/:/g, '-');
+                const backupFolder = path.join(BACKUP_DIR, `backup-${timestamp}`);
+                ensureDirectoryExists(backupFolder);
+    
+                // Backup database
+                const dbBackupPath = path.join(backupFolder, 'data.db');
+                if (fs.existsSync(this.dbPath)) {
+                    fs.copyFileSync(this.dbPath, dbBackupPath);
+                    console.log(`Database backed up to: ${dbBackupPath}`);
+                } else {
+                    console.error('Database file not found:', this.dbPath);
+                }
+    
+                // Backup uploaded files
+                const uploadedFilesBackupDir = path.join(backupFolder, 'uploaded-files');
+                if (fs.existsSync(this.uploadDir)) {
+                    ensureDirectoryExists(uploadedFilesBackupDir);
+                    fs.cpSync(this.uploadDir, uploadedFilesBackupDir, { recursive: true });
+                    console.log(`Uploaded files backed up to: ${uploadedFilesBackupDir}`);
+                } else {
+                    console.error('Uploaded files directory not found:', this.uploadDir);
+                }
+    
+                saveBackupTime();
+                retainLatestBackups();
+            } catch (error) {
+                console.error('Error during backup:', error);
+            }
+        };
+    
+        const retainLatestBackups = () => {
+            const backupFolders = fs.readdirSync(BACKUP_DIR)
+                .map(folder => path.join(BACKUP_DIR, folder))
+                .filter(folder => fs.lstatSync(folder).isDirectory());
+    
+            backupFolders.sort((a, b) => fs.statSync(b).mtime - fs.statSync(a).mtime);
+    
+            if (backupFolders.length > 3) {
+                const foldersToDelete = backupFolders.slice(3);
+                foldersToDelete.forEach(folder => {
+                    fs.rmSync(folder, { recursive: true, force: true });
+                    console.log(`Old backup deleted: ${folder}`);
+                });
+            }
+        };
+    
+        // Periodically check if backup is needed (every hour)
+        setInterval(() => {
+            const lastBackupTime = getLastBackupTime();
+            const now = Date.now();
+    
+            if (now - lastBackupTime >= BACKUP_INTERVAL) {
+                createBackup();
+            }
+        },  1 * 24 * 60 * 60 * 1000); // Check every hour
     }
 
     setupIpcHandlers() {
@@ -146,13 +212,12 @@ class ElectronApp {
             }
         });
 
-        ipcMain.handle('insertDocument', async (_, formData) => {
+        ipcMain.handle('insertDocument', async (_, documentData) => {
             try {
-                const result = await this.dbManager.processAndStoreDocument(formData);
-                return { success: true, data: result };
+                return await this.dbManager.insertDocument(documentData); // Pass everything to backend.js
             } catch (error) {
-                console.error(`Error processing document: ${error}`);
-                return { success: false, message: 'Document processing failed.' };
+                console.error(`Error inserting document: ${error}`);
+                return { success: false, message: 'Document insertion failed.' };
             }
         });
 
@@ -247,10 +312,6 @@ class ElectronApp {
                 console.error(`Error getting file preview: ${error}`);
                 return { success: false, message: 'Preview failed.' };
             }
-        });
-
-        ipcMain.handle('restart_app', () => {
-            autoUpdater.quitAndInstall();
         });
     }
 
