@@ -126,6 +126,40 @@ class DatabaseManager {
         });
     }
 
+    async insertDocument(documentData) {
+        const fileExtension = path.extname(documentData.fileName);
+        const newFileName = `${documentData.documentNumber}${fileExtension}`;
+        const newFilePath = path.join(this.uploadDir, newFileName); // Use correct upload directory    
+        await fs.promises.copyFile(documentData.filePath, newFilePath);    
+        const query = `INSERT INTO documents (
+            flow_type, document_number, date, time, 
+            recipient, document_type, file_name, 
+            file_path, description
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`;    
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                query,
+                [
+                    documentData.flowType,
+                    documentData.documentNumber,
+                    documentData.date,
+                    documentData.time,
+                    documentData.recipient,
+                    documentData.documentType,
+                    newFileName,   // Save the new file name
+                    newFilePath,   // Save the correct file path
+                    documentData.description,
+                ],
+                function (err) {
+                    if (err) {
+                        return reject(err);
+                    }
+                    resolve({ success: true, id: this.lastID });
+                }
+            );
+        });
+    }
+
     async fetchDocuments(filters = {}) {
         const conditions = [];
         const params = [];
