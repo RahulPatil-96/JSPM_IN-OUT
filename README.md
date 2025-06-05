@@ -1,71 +1,83 @@
-# Inward-Outward Document Management System
+# Inward-Outward Portal
 
-## Overview
-Inward-Outward Portal is a desktop application built with Electron that provides a comprehensive document management system for tracking inward and outward documents. It supports user authentication, document insertion, updating, approval, deletion, and searching. The app also manages file uploads and downloads, with export options to Excel and PDF formats. It includes automated backup scheduling and detailed logging for reliability.
+## Description
+Inward-Outward Portal is an Electron-based Document Management System designed to manage inward and outward documents efficiently. It provides features such as user authentication, document CRUD operations, document approval, file previews, and automated backups.
 
 ## Features
-- User authentication with role-based access (admin and standard users)
-- Manage inward and outward documents with metadata (document number, date, recipient, type, description, status)
-- Upload and store document files securely
-- Search and filter documents by multiple criteria
-- Update and approve documents
-- Delete documents with confirmation
-- Export search results to Excel or PDF
-- File preview and navigation within the app
-- Automated backup of database and uploaded files
-- Detailed logging of application events
-- Cross-platform desktop app powered by Electron and SQLite
+- User login and authentication
+- Insert, update, delete, and fetch documents with filters
+- Document approval workflow
+- Download search results in various formats
+- File preview support for images, PDFs, and Word documents
+- Automated daily backup of database and uploaded files
+- Single instance application to prevent multiple app instances
+- Built with Electron for cross-platform desktop support
 
 ## Installation
 
-### Prerequisites
-- [Node.js](https://nodejs.org/) (version 16 or higher recommended)
-- npm (comes with Node.js)
-
-### Setup
-1. Clone or download the repository.
-2. Open a terminal in the project directory.
-3. Run the following command to install dependencies:
+1. Ensure you have [Node.js](https://nodejs.org/) installed (version 16 or higher recommended).
+2. Clone the repository or download the source code.
+3. Navigate to the project directory:
+   ```bash
+   cd d:/project/jspm
    ```
+4. Install dependencies:
+   ```bash
    npm install
    ```
 
-## Running the Application
+## Usage
+
 To start the application in development mode, run:
-```
+```bash
 npm start
 ```
-This will launch the Electron app with logging enabled.
 
-## Building the Application
-To build a distributable installer for Windows, run:
-```
+This will launch the Electron app. The main window will open with the login screen.
+
+## Build
+
+To build the application for distribution, run:
+```bash
 npm run build
 ```
-The output installer will be located in the `dist` directory.
+
+The build output will be located in the `dist` directory. The build configuration uses `electron-builder` with NSIS installer for Windows.
 
 ## Project Structure
-```
-.
-├── backend.js              # Database and backend logic (SQLite, document management)
-├── main.js                 # Main Electron app initialization and IPC handlers
-├── preload.js              # Preload script for Electron context isolation
-├── render.js               # Renderer process script (UI logic)
-├── package.json            # Project metadata and dependencies
-├── assets/                 # Application icons and images
-├── static/css/             # CSS stylesheets
-├── templates/              # HTML templates for app UI
-└── README.md               # This file
-```
+
+- `main.js`: Main Electron process script, handles app lifecycle, IPC, and backup scheduling.
+- `backend.js`: Database management and business logic (not detailed here).
+- `preload.js`: Preload script for context isolation and secure IPC.
+- `render.js`: Renderer process script (UI logic).
+- `templates/`: HTML templates for different app views (login, dashboard, edit, search, etc.).
+- `assets/`: Application icons and images.
+- `static/css/`: Stylesheets for the UI.
 
 ## Dependencies
-- Electron: Desktop app framework
-- SQLite3: Embedded database for document storage
-- bcrypt: Password hashing for user authentication
-- docx, exceljs, pdfkit: Document export and generation libraries
 
-## Author
-V&R
+Key dependencies include:
+- Electron: Desktop app framework
+- bcrypt: Password hashing
+- sqlite3: Database engine
+- pdfkit, pdf-parse: PDF handling
+- exceljs, xlsx: Excel file handling
+- mammoth, docx: Word document processing
+- tesseract.js: OCR for image text extraction
+- natural, node-summarizer: Natural language processing
+
+## Logging
+
+Application logs are saved to a log file located in the user data directory. Logs include info and error messages for debugging and monitoring.
+
+## Backup
+
+The app automatically backs up the database and uploaded files daily to a configured backup directory (`D:\inward-outward-backup`). It retains the latest 3 backups and deletes older ones.
 
 ## License
-ISC
+
+This project is licensed under the ISC License.
+
+## Author
+
+V&R
